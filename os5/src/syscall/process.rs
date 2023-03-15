@@ -2,10 +2,12 @@
 
 use crate::loader::get_app_data_by_name;
 use crate::mm::{translated_refmut, translated_str};
+use crate::mm::{MapPermission, PageTable, VirtAddr, PhysAddr};
 use crate::task::{
     add_task, current_task, current_user_token, exit_current_and_run_next,
     suspend_current_and_run_next, TaskStatus,
 };
+// use crate::task::{exit_current_and_run_next, suspend_current_and_run_next, TaskStatus, current_user_token, get_task_info, current_mmap, current_munmap};
 use crate::timer::get_time_us;
 use alloc::sync::Arc;
 use crate::config::MAX_SYSCALL_NUM;
@@ -22,6 +24,16 @@ pub struct TaskInfo {
     pub status: TaskStatus,
     pub syscall_times: [u32; MAX_SYSCALL_NUM],
     pub time: usize,
+}
+
+pub fn get_pa(va: usize) -> usize{ 
+    let current_token = current_user_token();
+    let pt: PageTable = PageTable::from_token(current_token);
+    let va: VirtAddr = VirtAddr::from(va);  
+    let ppn = pt.translate(va.floor()).unwrap().ppn();
+    let pa: PhysAddr = ppn.into();
+    let pa: usize = pa.into();
+    pa + va.page_offset()
 }
 
 pub fn sys_exit(exit_code: i32) -> ! {
@@ -108,18 +120,24 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 // YOUR JOB: 引入虚地址后重写 sys_get_time
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     let _us = get_time_us();
-    // unsafe {
-    //     *ts = TimeVal {
-    //         sec: us / 1_000_000,
-    //         usec: us % 1_000_000,
-    //     };
-    // }
+    let pa = get_pa(_ts as usize);
+    unsafe{
+        let time = pa as *mut TimeVal;
+        * time = TimeVal {
+            sec: _us / 1_000_000,
+            usec: _us % 1_000_000,
+        }
+    }
     0
 }
 
 // YOUR JOB: 引入虚地址后重写 sys_task_info
 pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
-    -1
+    // let pa = get_pa(ti as usize);
+    // if get_task_info(pa as *mut TaskInfo) == 0 {
+    //     return 0 
+    // }
+    -1  //  失败
 }
 
 // YOUR JOB: 实现sys_set_priority，为任务添加优先级

@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use crate::sync::UPSafeCell;
 use lazy_static::*;
 
-struct PidHandle(pub usize);
+pub struct PidHandle(pub usize);
 
 impl Drop for PidHandle {
     fn drop(&mut self) {
@@ -38,7 +38,7 @@ impl PidAllocator {
         assert!(pid < self.current);
         assert!(
             self.recycled.iter().find(|ppid| **ppid == pid).is_none(),
-            "pid {} has been deallocated!", pid;
+            "pid {} has been deallocated!", pid
         );
         self.recycled.push(pid);
     }

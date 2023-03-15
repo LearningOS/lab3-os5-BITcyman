@@ -5,6 +5,7 @@ use super::{PTEFlags, PageTable, PageTableEntry};
 use super::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum};
 use super::{StepByOne, VPNRange};
 use crate::config::{MEMORY_END, PAGE_SIZE, TRAMPOLINE, TRAP_CONTEXT, USER_STACK_SIZE};
+use crate::sync::UPSafeCell;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -27,8 +28,8 @@ extern "C" {
 
 lazy_static! {
     /// a memory set instance through lazy_static! managing kernel space
-    pub static ref KERNEL_SPACE: Arc<Mutex<MemorySet>> =
-        Arc::new(Mutex::new(MemorySet::new_kernel()));
+    pub static ref KERNEL_SPACE:Arc<UPSafeCell<MemorySet>> =
+        Arc::new(unsafe { UPSafeCell::new(MemorySet::new_kernel()) });
 }
 
 /// memory set structure, controls virtual-memory space
@@ -58,6 +59,24 @@ impl MemorySet {
             MapArea::new(start_va, end_va, MapType::Framed, permission),
             None,
         );
+    }
+
+    pub fn from_existed_user(user_space: &MemorySet) -> MemorySet {
+        let mut memory_set = Self::new_bare();
+
+        memory_set.map_trampoline();
+
+        for area in user_space.areas.iter() {
+            let new_area = MapArea::from_another(area);
+            memory_set.push(new_area, None);
+
+            for vpn in area.vpn_range {
+                let src_ppn = user_space.translate(vpn).unwrap().ppn();
+                let dst_ppn = memory_set.translate(vpn).unwrap().ppn();
+                dst_ppn.get_bytes_array().copy_from_slice(src_ppn.get_bytes_array());
+            }
+        }
+        memory_set
     }
 
     pub fn remove_area_with_start_vpn(&mut self, start_vpn: VirtPageNum) {
@@ -230,6 +249,10 @@ impl MemorySet {
     pub fn translate(&self, vpn: VirtPageNum) -> Option<PageTableEntry> {
         self.page_table.translate(vpn)
     }
+
+    pub fn recycle_data_pages(&mut self) {
+        self.areas.clear();
+    }
 }
 
 /// map area structure, controls a contiguous piece of virtual memory
@@ -293,8 +316,7 @@ impl MapArea {
             self.unmap_one(page_table, vpn);
         }
     }
-    /// data: start-aligned but maybe with shorter length
-    /// assume that all frames were cleared before
+
     pub fn copy_data(&mut self, page_table: &mut PageTable, data: &[u8]) {
         assert_eq!(self.map_type, MapType::Framed);
         let mut start: usize = 0;
@@ -313,6 +335,18 @@ impl MapArea {
                 break;
             }
             current_vpn.step();
+        }
+    }
+
+    pub fn from_another(another: &MapArea) -> Self {
+        Self {
+            vpn_range: VPNRange::new(
+                another.vpn_range.get_start(),
+                another.vpn_range.get_end()
+            ),
+            data_frames: BTreeMap::new(),
+            map_type: another.map_type,
+            map_perm: another.map_perm,
         }
     }
 }
@@ -336,7 +370,7 @@ bitflags! {
 
 #[allow(unused)]
 pub fn remap_test() {
-    let mut kernel_space = KERNEL_SPACE.lock();
+    let mut kernel_space = KERNEL_SPACE.exclusive_access();
     let mid_text: VirtAddr = ((stext as usize + etext as usize) / 2).into();
     let mid_rodata: VirtAddr = ((srodata as usize + erodata as usize) / 2).into();
     let mid_data: VirtAddr = ((sdata as usize + edata as usize) / 2).into();

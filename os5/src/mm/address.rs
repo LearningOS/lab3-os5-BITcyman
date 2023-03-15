@@ -166,6 +166,12 @@ impl PhysPageNum {
     }
 }
 
+impl PhysAddr {
+    pub fn get_mut<T>(&self) -> &'static mut T {
+        unsafe { (self.0 as *mut T).as_mut().unwrap() }
+    }
+}
+
 pub trait StepByOne {
     fn step(&mut self);
 }
