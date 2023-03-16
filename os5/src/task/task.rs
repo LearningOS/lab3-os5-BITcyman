@@ -1,4 +1,5 @@
 use super::{PidHandle, pid_alloc, KernelStack, TaskContext};
+use super::manager::{PRIORITY_INIT, PASS_INIT, BIG_STRIDE};
 use crate::config::{TRAP_CONTEXT, MAX_SYSCALL_NUM};
 use crate::trap::{TrapContext, trap_handler};
 use crate::mm::{PhysPageNum, MemorySet, VirtAddr, KERNEL_SPACE};
@@ -9,6 +10,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use alloc::sync::{Arc, Weak};
 use core::cell::RefMut;
+use core::cmp::Ordering;
 
 pub struct TaskControlBlock {
     pub pid: PidHandle,
@@ -23,6 +25,7 @@ impl TaskControlBlock {
     pub fn getpid(&self) -> usize {
         self.pid.0
     }
+
     pub fn new(elf_data: &[u8]) -> Self {
         let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
         let trap_cx_ppn = memory_set
@@ -47,6 +50,9 @@ impl TaskControlBlock {
                 exit_code: 0,
                 syscall_times: BTreeMap::new(),
                 start_time: 0,
+                priority: PRIORITY_INIT,
+                pass: PASS_INIT,
+                stride: 0,
             })},
         };
 
@@ -105,6 +111,9 @@ impl TaskControlBlock {
                 exit_code: 0,
                 syscall_times: parent_inner.syscall_times.clone(),
                 start_time: parent_inner.start_time,
+                priority: parent_inner.priority,
+                pass: parent_inner.pass,
+                stride: parent_inner.stride,
             })},
         });
         parent_inner.children.push(task_control_block.clone());
@@ -140,6 +149,9 @@ impl TaskControlBlock {
                 exit_code: 0,
                 syscall_times: BTreeMap::new(),
                 start_time: 0,
+                priority: PRIORITY_INIT,
+                pass: PASS_INIT,
+                stride: 0,
             })},
         });
         parent_inner.children.push(task_control_block.clone());
@@ -168,6 +180,7 @@ pub struct TaskControlBlockInner {
     pub start_time: usize,
     pub priority: usize,
     pub pass: usize,
+    pub stride: usize,
 }
 
 impl TaskControlBlockInner {
@@ -201,6 +214,9 @@ impl TaskControlBlockInner {
         let count = self.syscall_times.entry(syscall_id as u16).or_insert(0);
         *count += 1;
     }
+    pub fn add_stride(&mut self){
+        self.stride += BIG_STRIDE / self.priority;
+    }
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -209,4 +225,35 @@ pub enum TaskStatus {
     Ready,
     Running,
     Zombie,
+}
+
+
+impl PartialEq for TaskControlBlock {
+    fn eq(&self, other: &Self) -> bool {
+        let my_inner = self.inner_exclusive_access();
+        let other_inner = other.inner_exclusive_access();
+        my_inner.stride == other_inner.stride
+    }
+}
+
+impl PartialOrd for TaskControlBlock {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for TaskControlBlock {}
+
+impl Ord for TaskControlBlock {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Reverse order for min heap
+        let my_inner = self.inner_exclusive_access();
+        let other_inner = other.inner_exclusive_access();
+        // my_inner.stride.cmp(&other_inner.stride)
+        match my_inner.stride.cmp(&other_inner.stride) {
+            Ordering::Less => Ordering::Greater,
+            Ordering::Equal => Ordering::Equal,
+            Ordering::Greater => Ordering::Less,
+        }
+    }
 }

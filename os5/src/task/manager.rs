@@ -1,33 +1,45 @@
 
-use super::TaskControlBlock;
+use super::{TaskControlBlock};
 use crate::sync::UPSafeCell;
-use alloc::collections::VecDeque;
+use alloc::collections::{VecDeque, BinaryHeap};
 use alloc::sync::Arc;
 use lazy_static::*;
 
 
+pub const BIG_STRIDE: usize = 0xffffffff;
+pub const PRIORITY_INIT: usize = 16;
+pub const PASS_INIT: usize = 0;
 
-pub struct TaskManager {
-    ready_quene: VecDeque<Arc<TaskControlBlock>>,
+
+pub trait TaskManager {
+    fn new() -> Self;
+    fn add(&mut self, task: Arc<TaskControlBlock>);
+    fn fetch(&mut self) -> Option<Arc<TaskControlBlock>>;
 }
 
-impl TaskManager {
-    pub fn new() -> Self {
-        Self { ready_quene: VecDeque::new(), }
+pub struct StrideManager {
+    ready_queue: BinaryHeap<Arc<TaskControlBlock>>,
+}
+
+impl TaskManager for  StrideManager{
+    fn new() -> Self {
+        Self { ready_queue: BinaryHeap::new(), }
     }
 
-    pub fn add(&mut self, task: Arc<TaskControlBlock>) {
-        self.ready_quene.push_back(task);
+    fn add(&mut self, task: Arc<TaskControlBlock>) {
+        self.ready_queue.push(task);
     }
 
-    pub fn fetch(&mut self) -> Option<Arc<TaskControlBlock>> {
-        self.ready_quene.pop_front()
+    fn fetch(&mut self) -> Option<Arc<TaskControlBlock>> {
+        let next_tcb = self.ready_queue.pop();
+        next_tcb.clone().unwrap().inner_exclusive_access().add_stride();
+        next_tcb
     }
 }
 
 lazy_static! {
-    pub static ref TASK_MANAGER: UPSafeCell<TaskManager> = unsafe {
-        UPSafeCell::new(TaskManager::new())
+    pub static ref TASK_MANAGER: UPSafeCell<StrideManager> = unsafe {
+        UPSafeCell::new(StrideManager::new())
     };
 }
 
