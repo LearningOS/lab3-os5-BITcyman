@@ -3,6 +3,9 @@ use alloc::sync::Arc;
 use super::{TaskContext, TaskControlBlock, __switch, fetch_task, TaskStatus};
 use crate::trap::TrapContext;
 use crate::sync::UPSafeCell;
+use crate::mm::{VirtAddr, MapPermission};
+use crate::syscall::TaskInfo;
+use crate::timer::get_time_us;
 use lazy_static::*;
 
 lazy_static! {
@@ -54,6 +57,25 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 
 
 
+pub fn current_mmap(start: VirtAddr, len: usize, perm: MapPermission) -> isize {
+    current_task().unwrap().inner_exclusive_access().memory_set.mmap(start, len, perm)
+}
+
+pub fn current_munmap(start: VirtAddr, len: usize) -> isize {
+    current_task().unwrap().inner_exclusive_access().memory_set.munmap(start, len)
+}
+
+
+pub fn get_current_task_info(ti: *mut TaskInfo) -> isize {
+    current_task().unwrap().inner_exclusive_access().get_task_info(ti)
+}
+
+pub fn increase_current_task_syscall(syscall_id: usize) {
+    current_task().unwrap().inner_exclusive_access().increase_task_syscall(syscall_id);
+}
+
+
+
 pub fn run_tasks() {
     loop {
         let mut processor = PROCESSOR.exclusive_access();
@@ -62,8 +84,11 @@ pub fn run_tasks() {
             
             let mut task_inner = task.inner_exclusive_access();
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
-            task_inner.task_status = TaskStatus::Running;
 
+            task_inner.task_status = TaskStatus::Running;
+            if task_inner.start_time == 0 {
+                task_inner.start_time = get_time_us();
+            }
             drop(task_inner);
             processor.current = Some(task);
 

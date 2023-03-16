@@ -204,6 +204,11 @@ where
     pub fn get_end(&self) -> T {
         self.r
     }
+    pub fn includes(&self, vr:Self) -> bool{
+        // println!("self:{:?},{:?},vr:{:?},{:?}",self.l,self.r,vr.l,vr.r);
+        ((self.l<= vr.l) && (vr.l< self.r)) || ((self.l < vr.r) && (vr.r <= self.r)) || (self.l >= vr.l) && (self.r <= vr.r)
+        
+    }
 }
 impl<T> IntoIterator for SimpleRange<T>
 where

@@ -11,7 +11,10 @@ pub use manager::{fetch_task, add_task};
 pub use task::{TaskControlBlock, TaskStatus};
 pub use pid::{PidHandle, KernelStack, pid_alloc};
 pub use context::TaskContext;
-pub use processor::{current_user_token, current_trap_cx, run_tasks, current_task, take_current_task, schedule};
+pub use processor::{current_user_token, current_trap_cx, run_tasks, current_task, 
+    take_current_task, schedule, increase_current_task_syscall,get_current_task_info,
+    current_mmap, current_munmap
+};
 
 use crate::loader::get_app_data_by_name;
 use alloc::sync::Arc;

@@ -17,7 +17,7 @@ mod context;
 use crate::config::{TRAMPOLINE, TRAP_CONTEXT};
 use crate::syscall::syscall;
 use crate::task::{
-    current_trap_cx, current_user_token, exit_current_and_run_next, suspend_current_and_run_next,
+    current_trap_cx, current_user_token, exit_current_and_run_next, suspend_current_and_run_next, increase_current_task_syscall
 };
 use crate::timer::set_next_trigger;
 use riscv::register::{
@@ -59,6 +59,7 @@ pub fn trap_handler() -> ! {
         Trap::Exception(Exception::UserEnvCall) => {
             let mut cx = current_trap_cx();
             cx.sepc += 4;
+            increase_current_task_syscall(cx.x[17]);
             let result = syscall(cx.x[17], [cx.x[10], cx.x[11], cx.x[12]]) as usize;
             cx = current_trap_cx();
             cx.x[10] = result as usize;

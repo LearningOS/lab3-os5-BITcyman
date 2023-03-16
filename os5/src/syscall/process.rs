@@ -1,13 +1,14 @@
 //! Process management syscalls
 
 use crate::loader::get_app_data_by_name;
-use crate::mm::{translated_refmut, translated_str};
+use crate::mm::{translated_refmut, translated_str, };
 use crate::mm::{MapPermission, PageTable, VirtAddr, PhysAddr};
 use crate::task::{
     add_task, current_task, current_user_token, exit_current_and_run_next,
-    suspend_current_and_run_next, TaskStatus,
+    suspend_current_and_run_next, TaskStatus, get_current_task_info, current_mmap, current_munmap
 };
-// use crate::task::{exit_current_and_run_next, suspend_current_and_run_next, TaskStatus, current_user_token, get_task_info, current_mmap, current_munmap};
+
+
 use crate::timer::get_time_us;
 use alloc::sync::Arc;
 use crate::config::MAX_SYSCALL_NUM;
@@ -133,30 +134,59 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
 
 // YOUR JOB: 引入虚地址后重写 sys_task_info
 pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
-    // let pa = get_pa(ti as usize);
-    // if get_task_info(pa as *mut TaskInfo) == 0 {
-    //     return 0 
-    // }
-    -1  //  失败
+    let pa = get_pa(ti as usize);
+    get_current_task_info(pa as *mut TaskInfo)
 }
 
 // YOUR JOB: 实现sys_set_priority，为任务添加优先级
 pub fn sys_set_priority(_prio: isize) -> isize {
-    -1
+    if prio >= 2 {
+        let task = current_task().unwrap();
+        let mut inner = task.inner_exclusive_access();
+        inner.priority = prio as usize;
+        prio
+    } else {
+        -1
+    }
 }
 
 // YOUR JOB: 扩展内核以实现 sys_mmap 和 sys_munmap
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    -1
+    let va = VirtAddr(_start);
+    if !va.aligned() {
+        return -1
+    }
+    if ((_port & 0x7) == 0) || _port > 7 {
+        return -1
+    }
+    let perm = MapPermission::from_bits(((_port<<1) + 16) as u8).unwrap();
+    current_mmap(va, _len, perm)
+
 }
 
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    -1
+    let va = VirtAddr(_start);
+    if !va.aligned() {
+        return -1
+    }
+    current_munmap(va, _len)
 }
 
-//
-// YOUR JOB: 实现 sys_spawn 系统调用
-// ALERT: 注意在实现 SPAWN 时不需要复制父进程地址空间，SPAWN != FORK + EXEC 
-pub fn sys_spawn(_path: *const u8) -> isize {
-    -1
+
+pub fn sys_spawn(path: *const u8) -> isize {
+    let current_task = current_task().unwrap();
+    let token = current_user_token();
+    let path = translated_str(token, path);
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
+        let new_task = current_task.spawn(data);
+        let new_pid = new_task.pid.0;
+        add_task(new_task);
+        new_pid as isize
+    } else {
+        -1
+    }
+
+
+    
+    
 }
